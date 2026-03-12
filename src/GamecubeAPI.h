@@ -67,9 +67,22 @@ protected:
 class CGamecubeConsole{
 public:
     inline CGamecubeConsole(const uint8_t p);
+    inline bool write(char &data);
     inline bool write(Gamecube_Data_t &data);
     inline bool write(CGamecubeController &controller);
     inline bool write(Gamecube_Report_t &report);
+
+    // Controller metadata (custom HayBox extension). Persistence and default
+    // construction are owned by the caller; these just seed/read the transport
+    // buffer and register a callback fired when a full write sequence lands.
+    // Controller metadata (custom HayBox extension). Persistence and default
+    // construction are owned by the caller; MetadataBuffer() exposes the fixed
+    // transport buffer to fill/read in place, and the chunk count advertises how
+    // many chunks are valid. A callback fires when a full write sequence lands.
+    inline uint8_t *MetadataBuffer();
+    inline uint8_t GetMetadataChunks();
+    inline void SetMetadataChunks(uint8_t chunks);
+    inline void SetMetadataWriteCallback(void (*callback)(void *context), void *context);
 
 protected:
     const uint8_t pin;

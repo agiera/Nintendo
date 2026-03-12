@@ -23,6 +23,36 @@ THE SOFTWARE.
 
 #include "Gamecube.h"
 
+// Transport-only metadata store. Persistence and default construction are owned
+// by the application (e.g. the HayBox GamecubeBackend), which fills this fixed
+// buffer in place via gc_metadata_buffer() and persists it from the
+// write-complete callback. Exposing the buffer directly avoids a redundant copy.
+static uint8_t gc_metadata[GC_METADATA_MAX_SIZE] = {0};
+static uint8_t gc_metadata_chunks = 0;
+static void (*gc_metadata_write_callback)(void *context) = NULL;
+static void *gc_metadata_write_context = NULL;
+
+uint8_t *gc_metadata_buffer(void)
+{
+    return gc_metadata;
+}
+
+uint8_t gc_metadata_get_chunks(void)
+{
+    return gc_metadata_chunks;
+}
+
+void gc_metadata_set_chunks(uint8_t chunks)
+{
+    gc_metadata_chunks = (chunks > GC_METADATA_MAX_CHUNKS) ? GC_METADATA_MAX_CHUNKS : chunks;
+}
+
+void gc_metadata_set_write_callback(void (*callback)(void *context), void *context)
+{
+    gc_metadata_write_callback = callback;
+    gc_metadata_write_context = context;
+}
+
 //================================================================================
 // Gamecube Controller
 //================================================================================
@@ -139,10 +169,16 @@ void gc_report_convert(Gamecube_Report_t* report, Gamecube_Report_t* dest_report
     }
 }
 
-uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t* origin, Gamecube_Report_t* report)
+uint8_t gc_write(
+    const uint8_t pin, Gamecube_Status_t* status,
+    Gamecube_Origin_t* origin, Gamecube_Report_t* report
+)
 {
-    // 0 = no input/error, 1 = init, 2 = origin, 3 = read, 4 = read with rumble
+    // 0 = no input/error, 1 = init, 2 = origin,
+    // 3 = read, 4 = read with rumble, 5 = read, 6 = read,
+    // 7 = metadata read, 8 = metadata write
     uint8_t ret = 0;
+    bool metadata_write_complete = false;
 
     // Get the port mask and the pointers to the in/out/mode registers
     uint8_t bitMask = digitalPinToBitMask(pin);
@@ -157,7 +193,9 @@ uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t
 
     // Read in data from the console
     // After receiving the init command you have max 80us to respond (for the data command)!
-    uint8_t command[3];
+    // Buffer is sized for the largest command we accept: a metadata write is
+    // [0xB0, total_chunks, chunk_index, 78 data bytes] = transfer size + 1.
+    uint8_t command[GC_METADATA_CHUNK_TRANSFER_SIZE + 1];
     uint8_t receivedBytes = gc_n64_get(command, sizeof(command), modePort, outPort, inPort, bitMask);
 
     // Init or reset
@@ -211,10 +249,55 @@ uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t
         else if((command[2] % 4) == 0x03){
             ret = 6;
         }
+    // Read metadata chunk: [0xA0, chunk_index] -> [chunks, index, 78 bytes]
+    } else if (receivedBytes == 2 && command[0] == 0xA0) {
+        uint8_t chunk_index = command[1];
+        if (chunk_index >= gc_metadata_chunks) {
+            chunk_index = 0;
+        }
+
+        uint8_t response[GC_METADATA_CHUNK_TRANSFER_SIZE];
+        response[0] = gc_metadata_chunks;
+        response[1] = chunk_index;
+        memcpy(
+            &response[2],
+            &gc_metadata[chunk_index * GC_METADATA_CHUNK_DATA_SIZE],
+            GC_METADATA_CHUNK_DATA_SIZE
+        );
+        gc_n64_send(response, sizeof(response), modePort, outPort, bitMask);
+        ret = 7;
+    // Write metadata chunk: [0xB0, total_chunks, chunk_index, 78 bytes]
+    } else if (receivedBytes == GC_METADATA_CHUNK_TRANSFER_SIZE + 1 && command[0] == 0xB0) {
+        uint8_t total_chunks = command[1];
+        uint8_t chunk_index = command[2];
+        if (total_chunks >= 1 && total_chunks <= GC_METADATA_MAX_CHUNKS &&
+            chunk_index < total_chunks) {
+            memcpy(
+                &gc_metadata[chunk_index * GC_METADATA_CHUNK_DATA_SIZE],
+                &command[3],
+                GC_METADATA_CHUNK_DATA_SIZE
+            );
+            // Advertise 0 (incomplete) until the final chunk lands. Readers see
+            // 0 and discard the partial payload; we persist only once the full
+            // object is present, so EEPROM is written exactly once per write.
+            gc_metadata_chunks = (chunk_index + 1 == total_chunks) ? total_chunks : 0;
+            metadata_write_complete = (gc_metadata_chunks != 0);
+        }
+
+        uint8_t ack = 0x01;
+        gc_n64_send(&ack, 1, modePort, outPort, bitMask);
+        ret = 8;
     }
 
     // End of time sensitive code
     SREG = oldSREG;
+
+    // Notify the owner once a full metadata write sequence has landed, at this
+    // safe point after the time-sensitive joybus section. The owner persists it.
+    if (metadata_write_complete && gc_metadata_write_callback != NULL)
+    {
+        gc_metadata_write_callback(gc_metadata_write_context);
+    }
 
     return ret;
 }

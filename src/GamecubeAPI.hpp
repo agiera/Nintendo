@@ -193,7 +193,30 @@ Gamecube_Data_t CGamecubeController::getData(void)
 //================================================================================
 
 CGamecubeConsole::CGamecubeConsole(const uint8_t p) : pin(p){
-    // Empty
+}
+
+
+uint8_t *CGamecubeConsole::MetadataBuffer()
+{
+    return gc_metadata_buffer();
+}
+
+
+uint8_t CGamecubeConsole::GetMetadataChunks()
+{
+    return gc_metadata_get_chunks();
+}
+
+
+void CGamecubeConsole::SetMetadataChunks(uint8_t chunks)
+{
+    gc_metadata_set_chunks(chunks);
+}
+
+
+void CGamecubeConsole::SetMetadataWriteCallback(void (*callback)(void *context), void *context)
+{
+    gc_metadata_set_write_callback(callback, context);
 }
 
 

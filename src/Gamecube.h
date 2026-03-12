@@ -39,6 +39,12 @@ THE SOFTWARE.
 #define NINTENDO_DEVICE_GC_KEYBOARD  0x2008
 #define NINTENDO_DEVICE_GC_NONE      0x0000
 
+// Controller metadata transfer parameters (custom HayBox extension).
+#define GC_METADATA_CHUNK_DATA_SIZE 78
+#define GC_METADATA_CHUNK_TRANSFER_SIZE 80
+#define GC_METADATA_MAX_CHUNKS 8
+#define GC_METADATA_MAX_SIZE (GC_METADATA_CHUNK_DATA_SIZE * GC_METADATA_MAX_CHUNKS)
+
 
 //================================================================================
 // Gamecube Typedefs
@@ -279,6 +285,16 @@ bool gc_init(const uint8_t pin, Gamecube_Status_t* status);
 bool gc_origin(const uint8_t pin, Gamecube_Origin_t* origin);
 bool gc_read(const uint8_t pin, Gamecube_Report_t* report, const bool rumble);
 bool gc_read_keyboard(const uint8_t pin, Gamecube_Report_t* report);
+
+// Controller metadata store (transport only; persistence is the caller's job).
+// The fixed transport buffer is exposed directly so the owner can fill/read it
+// in place without an extra copy; the chunk count advertises how many chunks
+// are valid.
+uint8_t* gc_metadata_buffer(void);
+uint8_t gc_metadata_get_chunks(void);
+void gc_metadata_set_chunks(uint8_t chunks);
+void gc_metadata_set_write_callback(void (*callback)(void* context), void* context);
+
 uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t* origin, Gamecube_Report_t* report);
 
 #ifdef __cplusplus
