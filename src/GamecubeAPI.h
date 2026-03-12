@@ -67,6 +67,7 @@ protected:
 class CGamecubeConsole{
 public:
     inline CGamecubeConsole(const uint8_t p);
+    inline bool write(char &data);
     inline bool write(Gamecube_Data_t &data);
     inline bool write(CGamecubeController &controller);
     inline bool write(Gamecube_Report_t &report);

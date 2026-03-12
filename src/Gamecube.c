@@ -141,7 +141,9 @@ void gc_report_convert(Gamecube_Report_t* report, Gamecube_Report_t* dest_report
 
 uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t* origin, Gamecube_Report_t* report)
 {
-    // 0 = no input/error, 1 = init, 2 = origin, 3 = read, 4 = read with rumble
+    // 0 = no input/error, 1 = init, 2 = origin,
+    // 3 = read, 4 = read with rumble, 5 = read, 6 = read,
+    // 7 =  gcc_rx, 8 = gcc_tx
     uint8_t ret = 0;
 
     // Get the port mask and the pointers to the in/out/mode registers
@@ -211,6 +213,11 @@ uint8_t gc_write(const uint8_t pin, Gamecube_Status_t* status, Gamecube_Origin_t
         else if((command[2] % 4) == 0x03){
             ret = 6;
         }
+    // Console requesting arbitrary data from controller
+    } else if (receivedBytes == 1 && command[0] == 0x50) {
+        char* data = "TEST";
+        gc_n64_send((uint8_t*)data, 5, modePort, outPort, bitMask);
+        ret = 7;
     }
 
     // End of time sensitive code
